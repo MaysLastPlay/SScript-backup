@@ -22,7 +22,7 @@ abstract SScriptVer(Null<Int>)
         this = Std.parseInt(string);
     }
 
-    public function checkVer():Bool
+   /* public function checkVer():Bool
     {
         var returnValue:Bool = true;
         try 
@@ -50,7 +50,7 @@ abstract SScriptVer(Null<Int>)
         catch (e) returnValue = true;
 
         return returnValue;
-    }
+    }*/
 
     public static function fromString(string:String):SScriptVer
     {
