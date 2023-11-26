@@ -49,7 +49,7 @@ class Macro
 		var long:String = '-------------------------------------------------------------------';
 		log('------------------------SScript ${VERSION} Macro------------------------');
 
-		for (i in credits)
+		/*for (i in credits)
 			log(i);
 
 		log('Checking version...');
@@ -63,7 +63,7 @@ class Macro
 			log('You\'re using an outdated version of SScript (${VERSION}). Please update it to ${SScriptVer.newerVer}.');
 		#else
 		log('Done! You are using the latest SScript version!');
-		#end
+		#end*/
 
 		final defines = Context.getDefines();
 
