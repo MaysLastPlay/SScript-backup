@@ -20,7 +20,7 @@ using StringTools;
 
 class Macro
 {
-//	public static var VERSION(default, null):SScriptVer = new SScriptVer(5, 0, 0);
+	public static var VERSION(default, null):SScriptVer = new SScriptVer(5, 0, 0);
 
 	#if sys
 	public static var isWindows(default, null):Bool =  ~/^win/i.match(Sys.systemName());
