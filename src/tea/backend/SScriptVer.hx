@@ -10,7 +10,7 @@ abstract SScriptVer(Null<Int>)
     public inline function new(num1:Int, num2:Int, num3:Int) 
     {
         this = 0;
-        setVer(num1, num2, num3);
+        //setVer(num1, num2, num3);
     }
 
 /*    public inline function setVer(num1:Int, num2:Int, num3:Int):Void
