@@ -52,9 +52,6 @@ class Macro
 		for (i in credits)
 			log(i);
 
-  if (v)
-  newerVer = SScriptVer(5, 0, 0);
-
 		//log('Checking version...');
 		
 		/*#if CHECK_SUPERLATIVE
