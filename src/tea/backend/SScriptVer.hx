@@ -6,7 +6,7 @@ using StringTools;
 
 abstract SScriptVer(Null<Int>)
 {
-    public static var newerVer(default, null):SScriptVer = SScriptVer(5, 0, 0);
+ //   public static var newerVer(default, null):SScriptVer = SScriptVer(5, 0, 0);
     public inline function new(num1:Int, num2:Int, num3:Int) 
     {
         this = 0;
