@@ -6,21 +6,21 @@ using StringTools;
 
 abstract SScriptVer(Null<Int>)
 {
-    public static var newerVer(default, null):SScriptVer = null;
+    public static var newerVer(default, null):SScriptVer = SScriptVer(5, 0, 0);
     public inline function new(num1:Int, num2:Int, num3:Int) 
     {
         this = 0;
         setVer(num1, num2, num3);
     }
 
-    public inline function setVer(num1:Int, num2:Int, num3:Int):Void
+/*    public inline function setVer(num1:Int, num2:Int, num3:Int):Void
     {
         var string:String = "";
         for (i in [num1, num2, num3])
             string += Std.string(i);
 
         this = Std.parseInt(string);
-    }
+    }*/
 
    /* public function checkVer():Bool
     {
