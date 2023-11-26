@@ -49,8 +49,8 @@ class Macro
 		var long:String = '-------------------------------------------------------------------';
 		log('------------------------SScript ${VERSION} Macro------------------------');
 
-		//for (i in credits)
-		//	log(i);
+		for (i in credits)
+			log(i);
 
 		//log('Checking version...');
 		
