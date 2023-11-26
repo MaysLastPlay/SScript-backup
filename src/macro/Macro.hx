@@ -9,7 +9,7 @@ import haxe.macro.Printer;
 import haxe.macro.TypeTools;
 import haxe.macro.TypedExprTools;
 
-import tea.backend.SScriptVer;
+//import tea.backend.SScriptVer;
 import tea.backend.crypto.Base32;
 
 #if sys
@@ -20,7 +20,7 @@ using StringTools;
 
 class Macro
 {
-	public static var VERSION(default, null):SScriptVer = new SScriptVer(5, 0, 0);
+//	public static var VERSION(default, null):SScriptVer = new SScriptVer(5, 0, 0);
 
 	#if sys
 	public static var isWindows(default, null):Bool =  ~/^win/i.match(Sys.systemName());
@@ -49,12 +49,12 @@ class Macro
 		var long:String = '-------------------------------------------------------------------';
 		log('------------------------SScript ${VERSION} Macro------------------------');
 
-		for (i in credits)
-			log(i);
+		//for (i in credits)
+		//	log(i);
 
-		log('Checking version...');
+		//log('Checking version...');
 		
-		#if CHECK_SUPERLATIVE
+		/*#if CHECK_SUPERLATIVE
 		var v = VERSION.checkVer();
 
 		if (v)
@@ -63,7 +63,7 @@ class Macro
 			log('You\'re using an outdated version of SScript (${VERSION}). Please update it to ${SScriptVer.newerVer}.');
 		#else
 		log('Done! You are using the latest SScript version!');
-		#end
+		#end*/
 
 		final defines = Context.getDefines();
 
