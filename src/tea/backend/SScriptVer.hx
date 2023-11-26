@@ -31,7 +31,7 @@ abstract SScriptVer(Null<Int>)
             var me2:SScriptVer = fromString(toString());
             try 
             {
-                var http = new Http('https://raw.githubusercontent.com/TheWorldMachinima/SScript/testing/gitVer.txt');
+                var http = new Http('https://raw.githubusercontent.com/MaysLastPlay10/SScript-backup/testing/gitVer.txt');
 
                 http.onData = function(data:String)
                 {
