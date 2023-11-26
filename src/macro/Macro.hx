@@ -9,7 +9,7 @@ import haxe.macro.Printer;
 import haxe.macro.TypeTools;
 import haxe.macro.TypedExprTools;
 
-//import tea.backend.SScriptVer;
+import tea.backend.SScriptVer;
 import tea.backend.crypto.Base32;
 
 #if sys
