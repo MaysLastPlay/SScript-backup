@@ -24,92 +24,16 @@ import hscriptBase.Expr;
 
 using StringTools;
 
-@:keep
 @:access(hscriptBase.Interp)
 class Tools {
+	static final thisName:String = 'hscriptBase.Tools';
+
 	public static var keys:Array<String> = [
 		"import", "package", "if", "var", "for", "while", "final", "do", "as", "using", "break", "continue",
 		"public", "private", "static", "overload", "override", "class", "function", "else", "try", "catch",
 		"abstract", "case", "switch", "untyped", "cast", "typedef", "dynamic", "default", "enum", "extern",
 		"extends", "implements", "in", "macro", "new", "null", "return", "throw", "from", "to", "super", "is"
 	];
-
-	public static function iter( e : Expr, f : Expr -> Void ) {
-		switch( expr(e) ) {
-		case EConst(_), EIdent(_):
-		case EVar(_, _, e): if( e != null ) f(e);
-		case EParent(e): f(e);
-		case EBlock(el): for( e in el ) f(e);
-		case EField(e, _): f(e);
-		case EBinop(_, e1, e2): f(e1); f(e2);
-		case EUnop(_, _, e): f(e);
-		case ECall(e, args): f(e); for( a in args ) f(a);
-		case EIf(c, e1, e2): f(c); f(e1); if( e2 != null ) f(e2);
-		case EWhile(c, e): f(c); f(e);
-		case EDoWhile(c, e): f(c); f(e);
-		case EFor(_, it, e): f(it); f(e);
-		case EBreak,EContinue:
-		case EFunction(_, e, _, _): f(e);
-		case EReturn(e): if( e != null ) f(e);
-		case EArray(e, i): f(e); f(i);
-		case EArrayDecl(el): for( e in el ) f(e);
-		case ENew(_,el): for( e in el ) f(e);
-		case EThrow(e): f(e);
-		case ETry(e, _, _, c): f(e); f(c);
-		case EObject(fl): for( fi in fl ) f(fi.e);
-		case ETernary(c, e1, e2): f(c); f(e1); f(e2);
-		case ESwitch(e, cases, def):
-			f(e);
-			for( c in cases ) {
-				for( v in c.values ) f(v);
-				f(c.expr);
-			}
-			if( def != null ) f(def);
-		case EMeta(name, args, e): if( args != null ) for( a in args ) f(a); f(e);
-		case ECheckType(e,_): f(e);
-		default:
-		}
-	}
-
-	public static function map( e : Expr, f : Expr -> Expr ) {
-		var edef = switch( expr(e) ) {
-		case EConst(_), EIdent(_), EBreak, EContinue: expr(e);
-		case EVar(n, t, e): EVar(n, t, if( e != null ) f(e) else null);
-		case EParent(e): EParent(f(e));
-		case EBlock(el): EBlock([for( e in el ) f(e)]);
-		case EField(e, fi): EField(f(e),fi);
-		case EBinop(op, e1, e2): EBinop(op, f(e1), f(e2));
-		case EUnop(op, pre, e): EUnop(op, pre, f(e));
-		case ECall(e, args): ECall(f(e),[for( a in args ) f(a)]);
-		case EIf(c, e1, e2): EIf(f(c),f(e1),if( e2 != null ) f(e2) else null);
-		case EWhile(c, e): EWhile(f(c),f(e));
-		case EDoWhile(c, e): EDoWhile(f(c),f(e));
-		case EFor(v, it, e): EFor(v, f(it), f(e));
-		case EFunction(args, e, name, t): EFunction(args, f(e), name, t);
-		case EReturn(e): EReturn(if( e != null ) f(e) else null);
-		case EArray(e, i): EArray(f(e),f(i));
-		case EArrayDecl(el): EArrayDecl([for( e in el ) f(e)]);
-		case ENew(cl,el): ENew(cl,[for( e in el ) f(e)]);
-		case EThrow(e): EThrow(f(e));
-		case ETry(e, v, t, c): ETry(f(e), v, t, f(c));
-		case EObject(fl): EObject([for( fi in fl ) { name : fi.name, e : f(fi.e) }]);
-		case ETernary(c, e1, e2): ETernary(f(c), f(e1), f(e2));
-		case ESwitch(e, cases, def): ESwitch(f(e), [for( c in cases ) { values : [for( v in c.values ) f(v)], expr : f(c.expr) } ], def == null ? null : f(def));
-		case EMeta(name, args, e): EMeta(name, args == null ? null : [for( a in args ) f(a)], f(e));
-		case ECheckType(e,t): ECheckType(f(e), t);
-		default: #if hscriptPos e.e #else e #end;
-		}
-		return mk(edef, e);
-	}
-
-	public static function getIdent( e : Expr ) : String {
-		return switch (expr(e)) {
-			case EIdent(v): v;
-			case EField(e,f): getIdent(e);
-			case EArray(e,i): getIdent(e);
-			default: null;
-		}
-	}
 
 	public static function ctToType( ct : CType ):String {
 		var ctToType:(ct:CType)->String = function(ct)
@@ -126,23 +50,19 @@ class Tools {
 		return ctToType(ct);
 	}
 
-	public static function compatibleWithEachOther(v,v2):Bool{
-		if (Interp.isMap(v) && Interp.isMap(v2))
+	public static function compatibleWithEachOther(v : Dynamic , v2 : Dynamic):Bool{
+		if( Interp.isMap(v) && Interp.isMap(v2) )
+			return true;
+		if( Interp.isMap(v) && v2 == "Array" )
 			return true;
 		
 		var c = Type.resolveClass(v), c1 = Type.resolveClass(v2);
-		if (c!=null&&c1!=null)
+		if( c!=null && c1!=null )
 		{
 			var superC = Type.getSuperClass(c);
 			if (superC!=null&&c1 == superC)
 				return true;
 		}
-		/*if (c!=null&&c1!=null)
-		{
-			var superC = Type.getSuperClass(c1);
-			if (superC!=null&&c == superC)
-				return true;
-		}*/
 		var chance:Bool = v=="Float"&&v2=="Int";
 		var secondChance:Bool = v=="Dynamic"||v2=="null";
 		return chance||secondChance;
@@ -186,19 +106,6 @@ class Tools {
 	}
 
 	public static inline function expr( e : Expr ) : ExprDef {
-		#if hscriptPos
-		return e.e;
-		#else
-		return e;
-		#end
+		return if (e == null) null else e.e;
 	}
-
-	public static inline function mk( e : ExprDef, p : Expr ) : Expr {
-		#if hscriptPos
-		return cast { e : e, pmin : p.pmin, pmax : p.pmax, origin : p.origin, line : p.line };
-		#else
-		return e;
-		#end
-	}
-
 }

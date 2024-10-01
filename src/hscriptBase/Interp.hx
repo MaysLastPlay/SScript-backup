@@ -20,10 +20,14 @@
  * DEALINGS IN THE SOFTWARE.
  */
 package hscriptBase;
+
+import haxe.ds.*;
 import haxe.PosInfos;
 import hscriptBase.Expr;
 import haxe.Constraints;
 import tea.SScript;
+
+using StringTools;
 
 private enum Stop {
 	SBreak;
@@ -51,15 +55,15 @@ class Interp {
 	var declared : Array<{ n : String, old : { r : Dynamic , ?isFinal : Bool , ?t:CType, ?dynamicFunc : Bool } }>;
 	var returnValue : Dynamic;
 
-	var typecheck : Bool = false;
+	var typecheck : Bool = true;
 
 	var usingStringTools : Bool = false;
 
 	var script : SScript;
 
-	#if hscriptPos
 	var curExpr : Expr;
-	#end
+
+	var specialObject : {obj:Dynamic , ?includeFunctions:Bool , ?exclusions:Array<String>} = {obj : null , includeFunctions: null , exclusions: null };
 
 	public inline function setScr(s)
 	{
@@ -103,21 +107,9 @@ class Interp {
 		variables.set("Array", Array);
 	}
 
-	function thisVar()
-	{
-		var	t = {};
-
-		for (i => k in locals)
-			Reflect.setProperty(t, i, k.r);
-
-		variables.set('this', t);
-	}
-
 	public function posInfos(): PosInfos {
-		#if hscriptPos
-			if (curExpr != null)
-				return cast { fileName : curExpr.origin, lineNumber : curExpr.line };
-		#end
+		if (curExpr != null)
+			return cast { fileName : curExpr.origin, lineNumber : curExpr.line };
 		return cast { fileName : "SScript", lineNumber : 0 };
 	}
 
@@ -150,7 +142,7 @@ class Interp {
 		binops.set("||",function(e1,e2) return me.expr(e1) == true || me.expr(e2) == true);
 		binops.set("&&",function(e1,e2) return me.expr(e1) == true && me.expr(e2) == true);
 		binops.set("=",assign);
-		#if hscriptPos binops.set("is",checkIs); #end
+		binops.set("is",checkIs);
 		binops.set("...",function(e1,e2) return new InterpIterator(me, e1, e2));
 		assignOp("+=",function(v1:Dynamic,v2:Dynamic) return v1 + v2);
 		assignOp("-=",function(v1:Float,v2:Float) return v1 - v2);
@@ -165,7 +157,6 @@ class Interp {
 		assignOp(">>>=",function(v1,v2) return v1 >>> v2);
 	}
 
-	#if hscriptPos
 	function checkIs(e1,e2) : Bool
 	{
 		var me = this;
@@ -192,7 +183,6 @@ class Interp {
 
 		return Std.isOfType(expr1, expr2);
 	}
-	#end
 
 	function coalesce(e1,e2) : Dynamic
 	{
@@ -307,10 +297,8 @@ class Interp {
 	}
 
 	function increment( e : Expr, prefix : Bool, delta : Int ) : Dynamic {
-		#if hscriptPos
 		curExpr = e;
 		var e = e.e;
-		#end
 		switch(e) {
 		case EIdent(id):
 			var l = locals.get(id);
@@ -378,9 +366,9 @@ class Interp {
 							if(e.indexOf(i)>0)
 								error(ECustom('Unexpected package'));
 							else if(pack > 1)
-								error(ECustom('Multiple packages declared'));
+								error(ECustom('Multiple packages has been declared'));
 							pack++;
-						case EImport(_,_,_,_):
+						case EImport(_,_,_):
 							if(e.indexOf(i)>imports + pack)
 								error(ECustom('Unexpected import'));
 							imports++;
@@ -388,7 +376,7 @@ class Interp {
 					}
 				}
 				if(pack > 1)
-					error(ECustom('Multiple packages ($pack) declared'));
+					error(ECustom('Multiple packages has been declared'));
 			case _:
 		}
 		return r;
@@ -428,9 +416,9 @@ class Interp {
 		}
 	}
 
-	inline function error(e : #if hscriptPos ErrorDef #else Error #end, rethrow=false ) : Dynamic {
+	inline function error(e : ErrorDef , rethrow=false ) : Dynamic {
 		if (resumeError)return null;
-		#if hscriptPos var e = new Error(e, curExpr.pmin, curExpr.pmax, curExpr.origin, curExpr.line); #end
+		var e = new Error(e, curExpr.pmin, curExpr.pmax, curExpr.origin, curExpr.line);
 		if( rethrow ) this.rethrow(e) else throw e;
 		return null;
 	}
@@ -448,16 +436,20 @@ class Interp {
 		if( l != null )
 			return l.r;
 		var v = variables.get(id);
-		if(v==null&&!variables.exists(id))
+		if( specialObject != null && specialObject.obj != null )
+		{
+			var field = Reflect.getProperty(specialObject.obj,id);
+			if( field != null && (specialObject.includeFunctions || Type.typeof(field) != TFunction) && (specialObject.exclusions == null || !specialObject.exclusions.contains(id)) )
+				return field;
+		}
+		if( v==null && !variables.exists(id) )
 			error(EUnknownVariable(id));
 		return v;
 	}
 
 	public function expr( e : Expr ) : Dynamic {
-		#if hscriptPos
 		curExpr = e;
 		var e = e.e;
-		#end
 		switch( e ) {
 		case EConst(c):
 			switch( c ) {
@@ -483,9 +475,34 @@ class Interp {
 				if(!Tools.compatibleWithEachOther(ftype, stype)&&ftype!=stype&&ftype!='Anon'&&!Tools.compatibleWithEachOtherObjects(cl,clN)){error(EUnmatchingType(ftype, stype, n));}
 			}
 
-			declared.push({ n : n, old : locals.get(n) });
-			locals.set(n,{ r : (e == null)?null:expr(e) , isFinal : false, t: t});
+			var expr1 : Dynamic = e == null ? null : expr(e);
+			var name = null;
+			var isMap = t != null && e != null && (switch t {
+				case CTPath(path,_):
+					if( path.length == 1 && isMap(path[0])) 
+					{
+						name = path[0];
+						true;
+					}
+					else false;
+				case _: false;
+			}) && (switch Tools.expr(e) {
+				case EArrayDecl(e): 
+					if( e.length < 1 ) true;
+					else false;
+				case _: false;
+			});
 
+			if( isMap ) 
+				switch name {
+					case "IntMap": expr1 = new IntMap<Dynamic>();
+					case "StringMap": expr1 = new StringMap<Dynamic>();
+					case "Map" | "ObjectMap": expr1 = new ObjectMap<Dynamic, Dynamic>();
+					case _: 
+				};
+
+			declared.push({ n : n, old : locals.get(n) });
+			locals.set(n,{ r : expr1 , isFinal : false, t: t});
 			return null;
 		case EFinal(n,t,e):
 			if(t!=null&&e!=null)
@@ -499,9 +516,9 @@ class Interp {
 				if(typecheck)
 				if(!Tools.compatibleWithEachOther(ftype, stype)&&ftype!=stype&&ftype!='Anon'&&!Tools.compatibleWithEachOtherObjects(cl,clN))error(EUnmatchingType(ftype, stype, n));
 			}
+
 			declared.push({ n : n, old : locals.get(n) });
 			locals.set(n,{ r : (e == null)?null:expr(e) , isFinal : true});
-
 			return null;
 		case EParent(e):
 			return expr(e);
@@ -515,6 +532,14 @@ class Interp {
 			return v;
 		case EField(e,f):
 			return get(expr(e),f);
+		case ESwitchBinop(p, e1, e2):
+			var parent = expr(p);
+			var e1 = expr(e1), e2 = expr(e2);
+			if( parent == e1 )
+				return e1;
+			else if( parent == e2 )
+				return e2;
+			return null;
 		case EBinop(op,e1,e2):
 			var fop = binops.get(op);
 			if( fop == null ) error(EInvalidOp(op));
@@ -535,15 +560,11 @@ class Interp {
 				#else
 				return ~expr(e);
 				#end
-			case "cast":
-				return cast (expr(e));
-			case "untyped":
-				untyped return { expr(e); };
 			default:
 				error(EInvalidOp(op));
 			}
 		case ECall(e,params):
-			var id = switch(#if hscriptPos e.e #else e #end){
+			var id = switch( e.e ){
 				case EIdent(v,i):
 					v;
 				default: null;
@@ -579,20 +600,15 @@ class Interp {
 		case EReturn(e):
 			returnValue = e == null ? null : expr(e);
 			throw SReturn;
-		case EImport( e, c , _ , m ):
+		case EImport( e, c , _ ):
 			if( c != null && e != null )
 				variables.set( c , e );
-			
-			if( m!=null ) 
-				for( i => k in m )
-					if ( k != null )
-						variables.set( i , k );
 
 			return null;
 		case EUsing( e, c ):
 			var stringTools = c == 'StringTools' && e == StringTools;
 
-			if( c != null && e != null )
+			if( c != null && e != null && !stringTools )
 				variables.set( c , e );
 			if( stringTools )
 				usingStringTools = true;
@@ -713,7 +729,7 @@ class Interp {
 					else if (isAllString) new haxe.ds.StringMap<Dynamic>();
 					else if (isAllEnum) new haxe.ds.EnumValueMap<Dynamic, Dynamic>();
 					else if (isAllObject) new haxe.ds.ObjectMap<Dynamic, Dynamic>();
-					else throw 'Inconsistent key types';
+					else new Map<Dynamic, Dynamic>();
 				}
 				for (n in 0...keys.length) {
 					setMapValue(map, keys[n], values[n]);
@@ -786,10 +802,12 @@ class Interp {
 			var match = false;
 			for( c in cases ) {
 				for( v in c.values )
-					if( expr(v) == val ) {
+				{
+					if( ( !Type.enumEq(Tools.expr(v),EIdent("_",false)) && expr(v) == val ) && ( c.ifExpr == null || expr(c.ifExpr) == true ) ) {
 						match = true;
 						break;
 					}
+				}
 				if( match ) {
 					val = expr(c.expr);
 					break;
@@ -798,8 +816,9 @@ class Interp {
 			if( !match )
 				val = def == null ? null : expr(def);
 			return val;
-		case EMeta(_, _, e):
-			return expr(e);
+		case EMeta(n, _, e):
+			var e = expr(e);
+			return e;
 		case ECheckType(e,_):
 			return expr(e);
 		}
@@ -887,6 +906,9 @@ class Interp {
 	function get( o : Dynamic, f : String ) : Dynamic {
 		if ( o == null ) error(EInvalidAccess(f));
 		return {
+			var func = StringFunctionTools.getStringToolsFunction(f);
+			if( Std.isOfType(o,String) && usingStringTools && func != null )
+				return func;
 			#if php
 				// https://github.com/HaxeFoundation/haxe/issues/4915
 				try {
@@ -895,39 +917,39 @@ class Interp {
 					Reflect.field(o, f);
 				}
 			#else
-			try{
-				var func = StringFunctionTools.getStringToolsFunction(f);
-				if( Std.isOfType(o,String) && usingStringTools && func != null )
-					return func;
-
-				var prop=null;
-				prop = Reflect.getProperty(o,f);
-
-				if(prop==null)
-				{
-					prop = Reflect.field(o,f);
-				}
-				@:privateAccess
-				if(prop==null)
-				{
-					error(EUnexistingField(f,o));
-				}
-				prop;
-			}
-			catch(e){
-				throw e;
-			}
+				return Reflect.getProperty(o,f);
 			#end
 		}
 	}
 
 	function set( o : Dynamic, f : String, v : Dynamic ) : Dynamic {
 		if( o == null ) error(EInvalidAccess(f));
-		Reflect.setProperty(o,f,v);
+		/*if( Type.typeof(v) != TFunction ) Reflect.setField(o,f,v); // NEVER USE setField !!
+		else*/Reflect.setProperty(o,f,v);
 		return v;
 	}
 
 	function fcall( o : Dynamic, f : String, args : Array<Dynamic>) : Dynamic {
+		var func = stringToolsFunction(o,f,args);
+		if( func != null )
+			return func;
+
+		return call(o, get(o, f), args);
+	}
+
+	function call( o : Dynamic, f : Dynamic, args : Array<Dynamic>) : Dynamic {
+		return Reflect.callMethod(o,f,args);
+	}
+
+	function cnew( cl : String, args : Array<Dynamic> ) : Dynamic {
+		var c : Dynamic = try resolve(cl) catch(e) null;
+		if( c == null ) c = Type.resolveClass(cl);
+		if( c == null ) error(EInvalidAccess(cl));
+
+		return Type.createInstance(c,args);
+	}
+
+	function stringToolsFunction( o : Dynamic , f : String , args : Array<Dynamic> ) : Dynamic {
 		var func = StringFunctionTools.getStringToolsFunction(f);
 		if( Std.isOfType(o,String) && usingStringTools && func != null )
 		{
@@ -945,27 +967,6 @@ class Interp {
 			}
 		} 
 
-		return call(o, get(o, f), args);
-	}
-
-	function call( o : Dynamic, f : Dynamic, args : Array<Dynamic>) : Dynamic {
-		return try Reflect.callMethod(o,f,args) catch(e) {
-			if( (e.message.indexOf('Unexpected value') > -1 || e.message == "Something went wrong") )
-			{
-				var rest = haxe.Rest.of([]);
-				for( i in args )
-					rest = rest.append(i);
-				//trace(rest);
-				return Reflect.callMethod(o,f,[rest]);
-			}
-			else 
-				return null;
-		}
-	}
-
-	function cnew( cl : String, args : Array<Dynamic> ) : Dynamic {
-		var c : Dynamic = Type.resolveClass(cl);
-		if( c == null ) c = resolve(cl);
-		return Type.createInstance(c,args);
+		return null;
 	}
 }
