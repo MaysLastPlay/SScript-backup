@@ -8,44 +8,31 @@ import haxe.Timer;
 import hscriptBase.*;
 import hscriptBase.Expr;
 
-#if openflPos
-import openfl.Assets;
-#end
-
 #if sys
 import sys.FileSystem;
 import sys.io.File;
 #end
-
-import tea.SScriptGroup;
 
 import tea.backend.*;
 import tea.backend.crypto.Base32;
 
 using StringTools;
 
-typedef SCall =
+typedef TeaCall =
 {
+	#if sys
 	public var ?fileName(default, null):String;
+	#end
 	
-	/**
-		If call's been successful or not. 
-	**/
 	public var succeeded(default, null):Bool;
 
-	/**
-		Function's name that has been called. 
-	**/
+	
 	public var calledFunction(default, null):String;
 
-	/**
-		Function's return value. Will be if null if there is no value.
-	**/
+	
 	public var returnValue(default, null):Null<Dynamic>;
 
-	/**
-		Errors in this call. Will be empty if there are not any.
-	**/
+	
 	public var exceptions(default, null):Array<SScriptException>;
 }
 
@@ -56,222 +43,68 @@ typedef SCall =
 @:access(hscriptBase.Interp)
 @:access(hscriptBase.Parser)
 @:keepSub
-class SScript implements SScriptInterface<SScript>
+class SScript
 {
-	/**
-		Ignore return value 
-	**/
 	public static var IGNORE_RETURN(default, never):Dynamic = "#0IGNORE#0RETURN#0VALUE#0";
 
-	/**
-		Stop return value
-	**/
 	public static var STOP_RETURN(default, never):Dynamic = "#1STOP#1RETURN#1VALUE#1";
 
-	/**
-		SScript version abstract, used for version checker.  
-	**/
-	public static var VERSION(default, null):SScriptVer = new SScriptVer(5, 0, 0);
+	public static var VERSION(default, null):SScriptVer = new SScriptVer(7, 7, 0);
 	
-	/**
-		If not null, assigns all scripts to check or ignore type declarations.
-	**/
 	public static var defaultTypeCheck(default, set):Null<Bool> = true;
 
-	/**
-		If not null, switches traces from `doString` and `new()`. 
-	**/
 	public static var defaultDebug(default, set):Null<Bool> = #if debug true #else null #end;
 
-	#if openflPos
-	/**
-		Variables in this map will be set to every SScript instance. 
+	public static var globalVariables:SScriptGlobalMap = new SScriptGlobalMap();
 
-		You need to clear this map at every state switch to avoid memory leaks!
-	**/
-	#else
-	/**
-		Variables in this map will be set to every SScript instance. 
-	**/
-	#end
-	public static var globalVariables:Map<String, Dynamic> = [];
-	
-	/**
-		Every created SScript will be mapped to this map. 
-	**/
 	public static var global(default, null):Map<String, SScript> = [];
+	
+	static var IDCount(default, null):Int = 0;
 
 	static var BlankReg(get, never):EReg;
-	
-	#if hscriptPos
-	/**
-		This is a custom origin you can set.
 
-		If not null, this will act as file path.
-	**/
 	public var customOrigin(default, set):String;
-	#end
 
-	/**
-		Script's own return value.
-		
-		This is not to be messed up with function's return value.
-	**/
 	public var returnValue(default, null):Null<Dynamic>;
 
-	/**
-		Whether the type checker should be enabled.
-	**/
+	public var ID(default, null):Null<Int> = null;
+
 	public var typeCheck:Bool = false;
 
-	/**
-		Reports how many seconds it took to execute this script. 
-
-		It will be -1 if it failed to execute.
-	**/
 	public var lastReportedTime(default, null):Float = -1;
 
-	/**
-		Report how many seconds it took to call the latest function in this script.
-
-		It will be -1 if it failed to execute.
-	**/
 	public var lastReportedCallTime(default, null):Float = -1;
 
-	/**
-		Used in `set`. If a class is set in this script while being in this array, an exception will be thrown.
-	**/
 	public var notAllowedClasses(default, null):Array<Class<Dynamic>> = [];
 
-	/**
-		Use this to access to interpreter's variables!
-	**/
 	public var variables(get, never):Map<String, Dynamic>;
 
-	/**
-		Main interpreter and executer. 
-
-		Do not use `interp.variables.set` to set variables!
-		Instead, use `set`.
-	**/
 	public var interp(default, null):Interp;
 
-	/**
-		An unique parser for the script to parse strings.
-	**/
 	public var parser(default, null):Parser;
 
-	/**
-		The script to execute. Gets set automatically if you create a `new` SScript.
-	**/
 	public var script(default, null):String = "";
 
-	/**
-		This variable tells if this script is active or not.
-
-		Set this to false if you do not want your script to get executed!
-	**/
 	public var active:Bool = true;
 
-	/**
-		This string tells you the path of your script file as a read-only string.
-	**/
 	public var scriptFile(default, null):String = "";
 
-	/**
-		If true, enables error traces from the functions.
-	**/
 	public var traces:Bool = false;
 
-	/**
-		If true, enables some traces from `doString` and `new()`.
-	**/
 	public var debugTraces:Bool = false;
 
-	/**
-		Latest error in this script in parsing. Will be null if there aren't any errors.
-	**/
 	public var parsingException(default, null):SScriptException;
 
-	/**
-		Package path of this script. Gets set automatically when you use `package`.
-	**/
 	public var packagePath(get, null):String = "";
-
-	@:noPrivateAccess static var defines(default, null):Map<String, String>;
 
 	@:deprecated("parsingExceptions are deprecated, use parsingException instead")
 	var parsingExceptions(get, never):Array<Exception>;
 
 	@:noPrivateAccess var _destroyed(default, null):Bool;
 
-	/**
-		Creates a new SScript instance.
-
-		@param scriptPath The script path or the script itself (Files are recommended).
-		@param Preset If true, SScript will set some useful variables to interp. Override `preset` to customize the settings.
-		@param startExecute If true, script will execute itself. If false, it will not execute.	
-	**/
 	public function new(?scriptPath:String = "", ?preset:Bool = true, ?startExecute:Bool = true)
 	{
 		var time = Timer.stamp();
-
-		#if sys
-		if (defines == null)
-		{
-			defines = new Map();
-
-			var contents:String = null;
-			var path:String = macro.Macro.definePath;
-
-			if (FileSystem.exists(path))
-			{
-				contents = new Base32().decodeString(File.getContent(path));
-				FileSystem.deleteFile(path);
-
-				for (i in contents.split('\n'))
-				{
-					i = i.trim();
-
-					var d1 = null, d2 = null;
-					var define:Array<String> = i.split('|');
-					if (define.length == 2)
-					{
-						d1 = define[0];
-						d2 = define[1];
-					}
-					else if (define.length == 1)
-					{
-						d1 = define[0];
-						d2 = '1';
-					}
-
-					if (d1 != null)
-						defines[d1] = d2 != null ? d2 : '1';
-				}
-			}
-			else 
-			{
-				defines["true"] = "1";
-				defines["haxe"] = "1";
-				defines["sys"] = "1";
-
-				#if hscriptPos
-				defines["hscriptPos"] = "1";
-				#end
-			}
-		}
-		#else
-		if (defines == null)
-			defines = new Map();
-
-		defines["true"] = "1";
-		defines["haxe"] = "1";
-
-		#if hscriptPos
-		defines["hscriptPos"] = "1";
-		#end
-		#end
 
 		if (defaultTypeCheck != null)
 			typeCheck = defaultTypeCheck;
@@ -287,8 +120,10 @@ class SScript implements SScriptInterface<SScript>
 			this.preset();
 
 		for (i => k in globalVariables)
+		{
 			if (i != null)
 				set(i, k);
+		}
 
 		try 
 		{
@@ -304,7 +139,6 @@ class SScript implements SScriptInterface<SScript>
 				else 
 					trace('SScript instance created in ${lastReportedTime}s');
 			}
-
 		}
 		catch (e)
 		{
@@ -312,11 +146,6 @@ class SScript implements SScriptInterface<SScript>
 		}
 	}
 
-	/**
-		Executes this script once.
-
-		Executing scripts with classes will not do anything.
-	**/
 	public function execute():Void
 	{
 		if (_destroyed)
@@ -325,20 +154,22 @@ class SScript implements SScriptInterface<SScript>
 		if (interp == null || !active)
 			return;
 
-		var origin:String = #if hscriptPos {
+		var origin:String = {
 			if (customOrigin != null && customOrigin.length > 0)
 				customOrigin;
 			else if (scriptFile != null && scriptFile.length > 0)
 				scriptFile;
 			else 
 				"SScript";
-		} #else null #end;
+		};
 
 		if (script != null && script.length > 0)
 		{
+			resetInterp();
+			
 			try 
 			{
-				var expr:Expr = parser.parseString(script #if hscriptPos, origin #end);
+				var expr:Expr = parser.parseString(script, origin);
 				var r = interp.execute(expr);
 				returnValue = r;
 			}
@@ -350,14 +181,6 @@ class SScript implements SScriptInterface<SScript>
 		}
 	}
 
-	/**
-		Sets a variable to this script. 
-
-		If `key` already exists it will be replaced.
-		@param key Variable name.
-		@param obj The object to set. If the object is a macro class, function will be aborted.
-		@return Returns this instance for chaining.
-	**/
 	public function set(key:String, obj:Dynamic):SScript
 	{
 		if (_destroyed)
@@ -373,9 +196,6 @@ class SScript implements SScriptInterface<SScript>
 
 			if (Tools.keys.contains(key))
 				throw '$key is a keyword, set something else';
-			else if (obj != null && macro.Macro.macroClasses.contains(obj))
-				throw '$key cannot be a Macro class (tried to set ${Type.getClassName(obj)})';
-
 			if (!active)
 				return;
 
@@ -397,12 +217,6 @@ class SScript implements SScriptInterface<SScript>
 		return this;
 	}
 
-	/**
-		This is a helper function to set classes easily.
-		For example; if `cl` is `sys.io.File` class, it'll be set as `File`.
-		@param cl The class to set. It cannot be macro classes.
-		@return this instance for chaining.
-	**/
 	public function setClass(cl:Class<Dynamic>):SScript
 	{
 		if (_destroyed)
@@ -432,12 +246,6 @@ class SScript implements SScriptInterface<SScript>
 		return this;
 	}
 
-	/**
-		Sets a class to this script from a string.
-		`cl` will be formatted, for example: `sys.io.File` -> `File`.
-		@param cl The class to set. It cannot be macro classes.
-		@return this instance for chaining.
-	**/
 	public function setClassString(cl:String):SScript
 	{
 		if (_destroyed)
@@ -464,11 +272,31 @@ class SScript implements SScriptInterface<SScript>
 		return this;
 	}
 
-	/**
-		Returns the local variables in this script as a fresh map.
+	public function setSpecialObject(obj:Dynamic, ?includeFunctions:Bool = true, ?exclusions:Array<String>):SScript
+	{
+		if (_destroyed)
+			return null;
+		if (!active)
+			return this;
+		if (obj == null)
+			return this;
+		if (exclusions == null)
+			exclusions = new Array();
 
-		Changing any value in returned map will not change the script's variables.
-	**/
+		var types:Array<Dynamic> = [Int, String, Float, Bool, Array];
+		for (i in types)
+			if (Std.isOfType(obj, i))
+				throw 'Special object cannot be ${i}';
+
+		if (interp.specialObject == null)
+			interp.specialObject = {obj: null , includeFunctions: null , exclusions: null };
+
+		interp.specialObject.obj = obj;
+		interp.specialObject.exclusions = exclusions.copy();
+		interp.specialObject.includeFunctions = includeFunctions;
+		return this;
+	}
+
 	public function locals():Map<String, Dynamic>
 	{
 		if (_destroyed)
@@ -487,13 +315,6 @@ class SScript implements SScriptInterface<SScript>
 		return newMap;
 	}
 
-	/**
-		Removes a variable from this script. 
-
-		If a variable named `key` doesn't exist, unsetting won't do anything.
-		@param key Variable name to remove.
-		@return Returns this instance for chaining.
-	**/
 	public function unset(key:String):SScript
 	{
 		if (_destroyed)
@@ -506,13 +327,6 @@ class SScript implements SScriptInterface<SScript>
 		return this;
 	}
 
-	/**
-		Gets a variable by name. 
-
-		If a variable named as `key` does not exists return is null.
-		@param key Variable name.
-		@return The object got by name.
-	**/
 	public function get(key:String):Dynamic
 	{
 		if (_destroyed)
@@ -538,21 +352,15 @@ class SScript implements SScriptInterface<SScript>
 		return if (exists(key)) interp.variables[key] else null;
 	}
 
-	/**
-		Calls a function the script.
-
-		`WARNING:` You MUST execute the script at least once to get the functions to script's interpreter.
-		If you do not execute this script and `call` a function, script will ignore your call.
-
-		@param func Function name in script file. 
-		@param args Arguments for the `func`. If the function does not require arguments, leave it null.
-		@param className If provided, searches the specific class. If the function is not found, other classes will be searched.
-		@return Returns an unique structure that contains called function, returned value etc. Returned value is at `returnValue`.
-	**/
-	public function call(func:String, ?args:Array<Dynamic>, ?className:String):SCall
+	public function call(func:String, ?args:Array<Dynamic>):TeaCall
 	{
 		if (_destroyed)
-			return null;
+			return {
+				exceptions: [new SScriptException(new Exception((if (scriptFile != null && scriptFile.length > 0) scriptFile else "SScript instance") + " is destroyed."))],
+				calledFunction: func,
+				succeeded: false,
+				returnValue: null
+			};
 
 		if (!active)
 			return {
@@ -565,20 +373,16 @@ class SScript implements SScriptInterface<SScript>
 		var time:Float = Timer.stamp();
 
 		var scriptFile:String = if (scriptFile != null && scriptFile.length > 0) scriptFile else "";
-		var caller:SCall = {
+		var caller:TeaCall = {
 			exceptions: [],
 			calledFunction: func,
 			succeeded: false,
 			returnValue: null
 		}
+		#if sys
 		if (scriptFile != null && scriptFile.length > 0)
-			caller = {
-				fileName: scriptFile,
-				exceptions: [],
-				calledFunction: func,
-				succeeded: false,
-				returnValue: null
-			}
+			Reflect.setField(caller, "fileName", scriptFile);
+		#end
 		if (args == null)
 			args = new Array();
 
@@ -639,14 +443,10 @@ class SScript implements SScriptInterface<SScript>
 					succeeded: true,
 					returnValue: functionField
 				};
+				#if sys
 				if (scriptFile != null && scriptFile.length > 0)
-					caller = {
-						fileName: scriptFile,
-						exceptions: caller.exceptions,
-						calledFunction: func,
-						succeeded: true,
-						returnValue: functionField
-					};
+					Reflect.setField(caller, "fileName", scriptFile);
+				#end
 			}
 			catch (e)
 			{
@@ -659,11 +459,6 @@ class SScript implements SScriptInterface<SScript>
 		return caller;
 	}
 
-	/**
-		Clears all of the keys assigned to this script.
-
-		@return Returns this instance for chaining.
-	**/
 	public function clear():SScript
 	{
 		if (_destroyed)
@@ -683,11 +478,6 @@ class SScript implements SScriptInterface<SScript>
 		return this;
 	}
 
-	/**
-		Tells if the `key` exists in this script's interpreter.
-		@param key The string to look for.
-		@return Returns true if `key` is found in interpreter.
-	**/
 	public function exists(key:String):Bool
 	{
 		if (_destroyed)
@@ -704,10 +494,6 @@ class SScript implements SScriptInterface<SScript>
 		return interp.variables.exists(key);
 	}
 
-	/**
-		Sets some useful variables to interp to make easier using this script.
-		Override this function to set your custom sets aswell.
-	**/
 	public function preset():Void
 	{
 		if (_destroyed)
@@ -718,6 +504,7 @@ class SScript implements SScriptInterface<SScript>
 		setClass(Date);
 		setClass(DateTools);
 		setClass(Math);
+		setClass(Reflect);
 		setClass(Std);
 		setClass(SScript);
 		setClass(StringTools);
@@ -728,10 +515,18 @@ class SScript implements SScriptInterface<SScript>
 		setClass(FileSystem);
 		setClass(Sys);
 		#end
-		
-		#if openflPos
-		setClass(Assets);
-		#end
+	}
+
+	function resetInterp():Void
+	{
+		if (_destroyed)
+			return;
+		if (interp == null)
+			return;
+
+		interp.locals = #if haxe3 new Map() #else new Hash() #end;
+		while (interp.declared.length > 0)
+			interp.declared.pop();
 	}
 
 	function doFile(scriptPath:String):Void
@@ -742,8 +537,13 @@ class SScript implements SScriptInterface<SScript>
 			return;
 
 		if (scriptPath == null || scriptPath.length < 1 || BlankReg.match(scriptPath))
+		{
+			ID = IDCount + 1;
+			IDCount++;
+			global[Std.string(ID)] = this;
 			return;
-		
+		}
+
 		if (scriptPath != null && scriptPath.length > 0)
 		{
 			#if sys
@@ -751,20 +551,6 @@ class SScript implements SScriptInterface<SScript>
 				{
 					scriptFile = scriptPath;
 					script = File.getContent(scriptPath);
-				}
-				else
-				{
-					scriptFile = "";
-					script = scriptPath;
-				}
-			#elseif openflPos
-				if (try Assets.exists(scriptPath) catch (e) false)
-				{
-					script = try Assets.getText(scriptPath) catch (e) null;
-					if (script == null)
-						script = scriptPath;
-					else
-						scriptFile = scriptPath;
 				}
 				else
 				{
@@ -783,19 +569,7 @@ class SScript implements SScriptInterface<SScript>
 		}
 	}
 
-	/**
-		Executes a string once instead of a script file.
-
-		This does not change your `scriptFile` but it changes `script`.
-
-		Even though this function is faster,
-		it should be avoided whenever possible.
-		Always try to use a script file.
-		@param string String you want to execute. If this argument is a file, this will act like `new` and will change `scriptFile`.
-		@param origin Optional origin to use for this script, it will appear on traces.
-		@return Returns this instance for chaining. Will return `null` if failed.
-	**/
-	public function doString(string:String #if hscriptPos, ?origin:String #end):SScript
+	public function doString(string:String, ?origin:String):SScript
 	{
 		if (_destroyed)
 			return null;
@@ -818,7 +592,6 @@ class SScript implements SScriptInterface<SScript>
 			}
 			#end
 
-			#if hscriptPos
 			var og:String = origin;
 			if (og != null && og.length > 0)
 				customOrigin = og;
@@ -826,19 +599,30 @@ class SScript implements SScriptInterface<SScript>
 				og = customOrigin;
 			if (og == null || og.length < 1)
 				og = "SScript";
-			#end
 
 			if (!active || interp == null)
 				return null;
+
+			resetInterp();
 
 			try
 			{	
 				script = string;
 
-				if (script != null && script.length > 0)
+				if (scriptFile != null && scriptFile.length > 0)
+				{
+					if (ID != null)
+						global.remove(Std.string(ID));
+					global[scriptFile] = this;
+				}
+				else if (script != null && script.length > 0)
+				{
+					if (ID != null)
+						global.remove(Std.string(ID));
 					global[script] = this;
+				}
 
-				var expr:Expr = parser.parseString(script #if hscriptPos , og #end);
+				var expr:Expr = parser.parseString(script, og);
 				var r = interp.execute(expr);
 				returnValue = r;
 			}
@@ -875,27 +659,6 @@ class SScript implements SScriptInterface<SScript>
 		return "[SScript SScript]";
 	}
 
-	#if (sys || openflPos)
-	/**
-		Checks for scripts in the provided path and returns them as an array.
-
-		Make sure `path` is a directory!
-
-		If `extensions` is not `null`, files' extensions will be checked.
-		Otherwise, only files with the `.hx` extensions will be checked and listed.
-
-		@param path The directory to check for. Nondirectory paths will be ignored.
-		@param extensions Optional extension to check in file names.
-		@return The script array.
-	**/
-	#else
-	/**
-		Checks for scripts in the provided path and returns them as an array.
-
-		This function will always return an empty array, because you are targeting an unsupported target.
-		@return An empty array.
-	**/
-	#end
 	public static function listScripts(path:String, ?extensions:Array<String>):Array<SScript>
 	{
 		if (!path.endsWith('/'))
@@ -924,59 +687,11 @@ class SScript implements SScriptInterface<SScript>
 					list.push(new SScript(path + i));
 			}
 		}
-		#elseif openflPos
-		function readDirectory(path:String):Array<String> 
-		{
-			if (path.endsWith('/') && path.length > 1)
-				path = path.substring(0, path.length - 1);
-
-			var assetsLibrary:Array<String> = [];
-			for (folder in Assets.list().filter(list -> list.contains(path))) 
-			{
-				var myFolder:String = folder;
-				myFolder = myFolder.replace('${path}/', '');
-
-				if (myFolder.contains('/'))
-					myFolder = myFolder.replace(myFolder.substring(myFolder.indexOf('/'), myFolder.length), '');
-
-				myFolder = '$path/${myFolder}';
-				
-				if (!myFolder.startsWith('.') && !assetsLibrary.contains(myFolder))
-					assetsLibrary.push(myFolder);
-		
-				assetsLibrary.sort((a, b) -> ({
-					a = a.toUpperCase();
-					b = b.toUpperCase();
-					return a < b ? -1 : a > b ? 1 : 0;
-				}));
-			}
-		
-			return assetsLibrary;
-		}
-		for (i in readDirectory(path))
-		{
-			var hasExtension:Bool = false;
-			for (l in extensions)
-			{
-				if (i.endsWith(l))
-				{
-					hasExtension = true;
-					break;
-				}
-			}
-			if (hasExtension && Assets.exists(i))
-				list.push(new SScript(i));
-		}
 		#end
-
+		
 		return list;
 	}
 
-	/**
-		This function makes this script **COMPLETELY** unusable and unrestorable.
-
-		If you don't want to destroy your script just yet, just set `active` to false!
-	**/
 	public function destroy():Void
 	{
 		if (_destroyed)
@@ -988,7 +703,9 @@ class SScript implements SScriptInterface<SScript>
 			global.remove(scriptFile);
 
 		clear();
+		resetInterp();
 
+		customOrigin = null;
 		parser = null;
 		interp = null;
 		script = null;
@@ -997,6 +714,7 @@ class SScript implements SScriptInterface<SScript>
 		notAllowedClasses = null;
 		lastReportedCallTime = -1;
 		lastReportedTime = -1;
+		ID = null;
 		parsingException = null;
 		returnValue = null;
 		_destroyed = true;
@@ -1031,7 +749,6 @@ class SScript implements SScriptInterface<SScript>
 		return ~/^[\n\r\t]$/;
 	}
 
-	#if hscriptPos
 	function set_customOrigin(value:String):String
 	{
 		if (_destroyed)
@@ -1040,7 +757,6 @@ class SScript implements SScriptInterface<SScript>
 		@:privateAccess parser.origin = value;
 		return customOrigin = value;
 	}
-	#end
 
 	static function set_defaultTypeCheck(value:Null<Bool>):Null<Bool> 
 	{
