@@ -1,13 +1,13 @@
 {
-  "name": "SScript",
-  "url": "https://github.com/TheWorldMachinima/SScript",
+  "name": "SScript Archive",
+  "url": "https://github.com/MaysLastPlau/SScript-Archive",
   "license": "Apache",
-  "tags": ["hscript", "sscript"],
-  "description": "An easy-to-use Haxe Script tool for all targets.",
-  "version": "5.0.0",
+  "tags": [],
+  "description": "",
+  "version": "8.1.6",
   "classPath": "src/",
-  "releasenote": "Legacy Update",
-  "contributors": ["TheWorldMachinima", "TahirRollingArch"],
+  "releasenote": "",
+  "contributors": ["tahirk786"],
   "dependencies": {
   }
 }
